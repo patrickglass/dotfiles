@@ -1,0 +1,121 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+##############################################################################
+#                               Getting Started
+##############################################################################
+#
+# This template will create a full development environment for the Datajoy
+# infrastructure including pulling the repos. It will inject secrets from the
+# current users home directory. This image should never be copies off of this
+# workstation.
+#
+# Install the Vagrant VMware Utility:
+#   https://www.vagrantup.com/vmware/downloads
+#
+# Next, install the Vagrant VMware provider plugin:
+#   vagrant plugin install vagrant-vmware-desktop
+#
+# Now you can bring up the vm
+#   vagrant up  # takes around 5 minutes
+#   vagrant ssh
+#
+
+##############################################################################
+#                              Base Configuration
+##############################################################################
+Vagrant.configure("2") do |config|
+  # Ubuntu 20.04 Base Image
+  config.vm.box = "generic/ubuntu2004"
+
+  # Create a forwarded port mapping which allows access to a specific port
+  # within the machine from a port on the host machine. In the example below,
+  # accessing "localhost:8080" will access port 80 on the guest machine.
+  # NOTE: This will enable public access to the opened port
+  # config.vm.network "forwarded_port", guest: 80, host: 8080
+
+  # Create a forwarded port mapping which allows access to a specific port
+  # within the machine from a port on the host machine and only allow access
+  # via 127.0.0.1 to disable public access
+  # config.vm.network "forwarded_port", guest: 80, host: 8080, host_ip: "127.0.0.1"
+
+  # Create a private network, which allows host-only access to the machine
+  # using a specific IP.
+  # config.vm.network "private_network", ip: "192.168.33.10"
+
+  # Create a public network, which generally matched to bridged network.
+  # Bridged networks make the machine appear as another physical device on
+  # your network.
+  # config.vm.network "public_network"
+
+  # Share an additional folder to the guest VM. The first argument is
+  # the path on the host to the actual folder. The second argument is
+  # the path on the guest to mount the folder. And the optional third
+  # argument is a set of non-required options.
+  # config.vm.synced_folder "../data", "/vagrant_data"
+
+  config.vm.provider "vmware_desktop" do |v|
+    v.vmx["memsize"] = "4096"
+    v.vmx["numvcpus"] = "4"
+  end
+
+  ############################################################################
+  # CAUTION: The resulting VM has very sensitive credentials within it.
+  #          Please comment out these privisioners if you do not need them
+  ############################################################################
+  # config.vm.provision "file", source: "~/.gitconfig",           destination: ".gitconfig"
+
+  config.vm.provision "shell", inline: <<-SHELL
+    apt-get update
+    apt-get -yq install unattended-upgrades apt-transport-https awscli
+
+    echo "INFO: validate automatic security upgrades is running"
+    echo unattended-upgrades unattended-upgrades/enable_auto_updates boolean true | debconf-set-selections
+    dpkg-reconfigure -f noninteractive unattended-upgrades
+    unattended-upgrade -d
+    systemctl status unattended-upgrades
+  SHELL
+
+  config.vm.provision "shell", path: "../../install_linux.sh"
+
+  config.vm.provision "shell", inline: <<-SHELL
+    echo "INFO: install docker"
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+    echo \
+      "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu \
+      $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+    apt-get update
+    apt-get -yq install docker-ce docker-ce-cli containerd.io
+    usermod -aG docker vagrant
+  SHELL
+
+  config.vm.provision "shell", inline: <<-SHELL
+    echo "INFO: install the latest version of git"
+    sudo add-apt-repository -y ppa:git-core/ppa
+    sudo apt-get update
+    sudo apt-get -yq install git
+
+    echo "INFO: install python"
+    sudo apt-get -yq install python3 python3-pip python3-virtualenv
+
+    echo "INFO: install neovim"
+    sudo apt-get -yq install neovim python3-neovim
+
+    echo "INFO: install safe to manage vault targets"
+    wget https://github.com/starkandwayne/safe/releases/download/v1.7.0/safe-linux-amd64
+    sudo install safe-linux-amd64 /usr/local/bin/safe
+    safe --version
+
+    echo "INFO: install kubectl"
+    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    curl -LO "https://dl.k8s.io/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl.sha256"
+    echo "$(<kubectl.sha256) kubectl" | sha256sum --check
+    sudo install kubectl /usr/local/bin/kubectl
+    kubectl version --client
+
+    echo "INFO: install GitHub cli"
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+    sudo apt update
+    sudo apt -yq install gh
+  SHELL
+end
